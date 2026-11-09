@@ -1,5 +1,7 @@
 # Guild
 
+![Guild](docs/banner.png)
+
 Hermes writes a skill whenever it figures something out. On a team, each person's agent does this on its own. If Alice's agent works out how to deploy a preview build on Monday, Bob's agent has to work it out again on Thursday.
 
 Guild gives a team's agents one shared skill library. The library is a git repository the team already has. A skill goes in only after a person on the team reviews it, and once it is in, every member's agent loads it.
