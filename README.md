@@ -59,6 +59,8 @@ hermes guild leave
 
 In a chat, `/guild status`, `/guild propose <skill>`, `/guild review` and `/guild sync` do the same thing.
 
+In Hermes Desktop, Guild adds a **Guild** page to the sidebar (also in ⌘K as "Guild: open team skills"). It lists proposals waiting for review, opens each one's diff with a count of what was removed before sending, and has Approve and Decline buttons. Below that are the team's skills and any skills you learned that the team doesn't have yet, each with a button to propose it. The page talks to the plugin through Hermes' plugin RPC (`plugin.guild.*`), so there is no extra server.
+
 If you work alone across several machines or profiles, `hermes guild init <remote> --solo` creates a guild with no review step, so each of your machines picks up what the others learn.
 
 ## Agent tools

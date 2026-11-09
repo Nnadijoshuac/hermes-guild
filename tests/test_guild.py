@@ -203,3 +203,35 @@ def test_tools_return_json_and_never_raise(team):
                      (tools.guild_propose, {"skill": "missing-skill", "note": "x"})):
         out = json.loads(fn(args))
         assert "success" in out
+
+
+def test_repropose_uses_guild_main_not_stale_library(team):
+    core = team["be"]("alice")
+    _write_skill(team["homes"]["alice"], "deploy-preview", SECRET_SKILL)
+    core.propose("deploy-preview", note="v1")
+    core = team["be"]("bob")
+    core.approve("deploy-preview@alice")
+    core = team["be"]("alice")  # Alice has not synced since Bob approved
+    with pytest.raises(core.GuildError, match="nothing to propose"):
+        core.propose("deploy-preview", note="same again")
+    _write_skill(team["homes"]["alice"], "deploy-preview", SECRET_SKILL + "\n- New pitfall\n")
+    p = core.propose("deploy-preview", note="adds a pitfall")
+    assert p.kind == "update"
+    shown = core.show_proposal("deploy-preview@alice")
+    assert "New pitfall" in shown["diff"]
+
+
+def test_rpc_methods_return_ok_or_error(team):
+    core = team["be"]("alice")
+    _write_skill(team["homes"]["alice"], "deploy-preview", SECRET_SKILL)
+    core.propose("deploy-preview", note="x")
+    core = team["be"]("bob")
+    rpc = sys.modules["guild.rpc"].METHODS
+    ov = rpc["overview"]({})
+    assert ov["ok"] and [p["id"] for p in ov["proposals"]] == ["deploy-preview@alice"]
+    shown = rpc["show"]({"id": "deploy-preview@alice"})
+    assert shown["ok"] and "deploy-preview" in shown["diff"]
+    assert rpc["show"]({"id": "nope@x"})["ok"] is False
+    ap = rpc["approve"]({"id": "deploy-preview@alice"})
+    assert ap["ok"] and ap["version"] == 1
+    assert rpc["overview"]({})["skills"][0]["skill"] == "deploy-preview"

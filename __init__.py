@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from . import cli, core, hooks, tools
+from . import cli, core, hooks, rpc, tools
 
 logger = logging.getLogger(__name__)
 
@@ -44,3 +44,12 @@ def register(ctx) -> None:
                          args_hint="status|sync|propose <skill>|review|show <id>|approve <id>|reject <id>")
     ctx.register_cli_command(name="guild", help="Share reviewed skills across your team's Hermes agents",
                              setup_fn=cli.setup_parser, handler_fn=cli.handle_cli)
+
+    # Methods for the Desktop page (desktop/plugin.js), served as plugin.guild.<name>.
+    register_rpc = getattr(ctx, "register_rpc", None)
+    if callable(register_rpc):
+        for name, handler in rpc.METHODS.items():
+            try:
+                register_rpc(name, handler)
+            except Exception:
+                logger.debug("guild: could not register rpc %s", name, exc_info=True)

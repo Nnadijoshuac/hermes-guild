@@ -620,19 +620,34 @@ def propose(skill: str, *, note: str = "", content: Optional[str] = None,
         raise GuildError("Not in a guild yet. Run `hermes guild init <remote>` or `hermes guild join <remote>`.")
     if not _SKILL_NAME_RE.match(skill or ""):
         raise GuildError(f"'{skill}' is not a valid skill name (lowercase letters, digits, - and _).")
-    in_library = (library_skills_dir() / skill / "SKILL.md").exists()
-    if content is not None:
-        if not content.strip():
-            raise GuildError("Proposed SKILL.md content is empty.")
-        base = library_skills_dir() / skill if in_library else None
-        files: dict[str, bytes] = {}
-        skipped: list[str] = []
-        if base is not None:
-            files, skipped = _read_skill_files(base)
-        files["SKILL.md"] = content.encode("utf-8")
-    else:
-        src = resolve_local_skill(skill)
-        files, skipped = _read_skill_files(src)
+    if content is not None and not content.strip():
+        raise GuildError("Proposed SKILL.md content is empty.")
+    cfg = guild_config()
+    direct = not cfg.get("require_review", True)
+    member, mslug = member_name(), member_slug()
+    branch = f"{PROPOSAL_PREFIX}{mslug}/{skill}"
+    with _lock:
+        # Decide new vs update against the guild's current main, not this member's library clone,
+        # which may not have synced since the last approval.
+        w = work_dir()
+        _git(["fetch", "-q", "--prune", "origin"], cwd=w)
+        _git(["checkout", "-q", "-f", "-B", MAIN if direct else branch, f"origin/{MAIN}"], cwd=w)
+        _git(["clean", "-qfd"], cwd=w)
+        team_dir = w / "skills" / skill
+        in_library = (team_dir / "SKILL.md").exists()
+        prev = skill_meta(skill, base=w / "skills")
+        if content is not None:
+            files, skipped = _read_skill_files(team_dir) if in_library else ({}, [])
+            files["SKILL.md"] = content.encode("utf-8")
+        else:
+            files, skipped = _read_skill_files(resolve_local_skill(skill))
+        return _propose_locked(skill, note, files, skipped, in_library, prev, direct, member, mslug, branch,
+                               evidence, w)
+
+
+def _propose_locked(skill: str, note: str, files: dict[str, bytes], skipped: list[str], in_library: bool,
+                    prev: dict[str, Any], direct: bool, member: str, mslug: str, branch: str,
+                    evidence: Optional[dict[str, Any]], w: Path) -> Proposal:
 
     clean: dict[str, bytes] = {}
     redactions: list[dict[str, Any]] = []
@@ -647,11 +662,6 @@ def propose(skill: str, *, note: str = "", content: Optional[str] = None,
             clean[rel] = data
     skill_md = clean["SKILL.md"].decode("utf-8", errors="replace")
     sim = similar_skills(skill, skill_md, exclude=skill)
-    member, mslug = member_name(), member_slug()
-    branch = f"{PROPOSAL_PREFIX}{mslug}/{skill}"
-    cfg = guild_config()
-    direct = not cfg.get("require_review", True)
-    prev = skill_meta(skill)
     meta = {
         "skill": skill, "author": prev.get("author") or member, "proposed_by": member,
         "proposed_at": now_iso(), "note": note.strip()[:500], "kind": "update" if in_library else "new",
@@ -661,33 +671,32 @@ def propose(skill: str, *, note: str = "", content: Optional[str] = None,
     }
     if direct:
         meta.update({"approved_by": member, "approved_at": now_iso()})
-    with _lock:
-        w = work_dir()
-        _git(["fetch", "-q", "--prune", "origin"], cwd=w)
-        _git(["checkout", "-q", "-f", "-B", MAIN if direct else branch, f"origin/{MAIN}"], cwd=w)
-        _git(["clean", "-qfd"], cwd=w)
-        dest = w / "skills" / skill
-        if dest.exists():
-            _rmtree(dest)
-        for rel, data in clean.items():
-            out = dest / rel
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(data)
-        (dest / META_FILE).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        if direct:
-            _append_decision(w, {"action": "approve", "skill": skill, "member": member, "by": member,
-                                 "mode": "solo", "note": note[:200]})
-        _git(["add", "-A"], cwd=w)
-        if not _git(["status", "--porcelain"], cwd=w).strip():
-            raise GuildError(f"'{skill}' is already in the guild exactly as you have it; nothing to propose.")
-        verb = "add" if not in_library else "update"
-        _git(["commit", "-q", "-m", f"guild: {verb} {skill}" + (f"\n\n{note.strip()}" if note.strip() else "")],
-             cwd=w, identity=True)
-        if direct:
-            _git(["push", "-q", "origin", MAIN], cwd=w)
-        else:
-            _git(["push", "-q", "--force", "origin", f"{branch}:{branch}"], cwd=w)
-        _git(["checkout", "-q", "--detach", f"origin/{MAIN}"], cwd=w, check=False)
+    dest = w / "skills" / skill
+    if dest.exists():
+        _rmtree(dest)
+    for rel, data in clean.items():
+        out = dest / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
+    _git(["add", "-A", "--", f"skills/{skill}"], cwd=w)
+    changed = _git(["status", "--porcelain", "--", f"skills/{skill}",
+                    f":(exclude)skills/{skill}/{META_FILE}"], cwd=w).strip()
+    if not changed:
+        _git(["checkout", "-q", "-f", "--detach", f"origin/{MAIN}"], cwd=w, check=False)
+        raise GuildError(f"'{skill}' is already in the guild exactly as you have it; nothing to propose.")
+    (dest / META_FILE).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    if direct:
+        _append_decision(w, {"action": "approve", "skill": skill, "member": member, "by": member,
+                             "mode": "solo", "note": note[:200]})
+    _git(["add", "-A"], cwd=w)
+    verb = "add" if not in_library else "update"
+    _git(["commit", "-q", "-m", f"guild: {verb} {skill}" + (f"\n\n{note.strip()}" if note.strip() else "")],
+         cwd=w, identity=True)
+    if direct:
+        _git(["push", "-q", "origin", MAIN], cwd=w)
+    else:
+        _git(["push", "-q", "--force", "origin", f"{branch}:{branch}"], cwd=w)
+    _git(["checkout", "-q", "--detach", f"origin/{MAIN}"], cwd=w, check=False)
     if direct:
         with _suppress():
             sync(quiet=True)

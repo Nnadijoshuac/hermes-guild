@@ -21,6 +21,8 @@ foreach ($m in @("alice", "bob")) {
   $h = Join-Path $Root $m
   New-Item -ItemType Directory -Force "$h\plugins\guild", "$h\skills" | Out-Null
   Copy-Item "$plugin\*.py", "$plugin\plugin.yaml" "$h\plugins\guild\"
+  New-Item -ItemType Directory -Force "$h\plugins\guild\desktop" | Out-Null
+  Copy-Item "$plugin\desktop\plugin.js" "$h\plugins\guild\desktop\"
   $cfg = "plugins:`n  enabled:`n    - guild`n"
   if ($ModelConfigFrom -and (Test-Path $ModelConfigFrom)) {
     $cfg = (Get-Content -Raw $ModelConfigFrom) + "`n" + $cfg
