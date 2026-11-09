@@ -1,0 +1,37 @@
+name: guild
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+requires_hermes: ">=0.23.0"
+description: >-
+  One reviewed skill library for your whole team's Hermes agents. Skills an agent learns are
+  scrubbed for secrets and proposed to a git repository the team controls; a human reviewer
+  approves them; every member's agent then loads the approved version read-only, so no agent
+  can silently overwrite the team's copy (it proposes a change instead).
+author: NNADI Joshua (0xserenity)
+license: MIT
+homepage: https://github.com/Nnadijoshuac/hermes-guild
+tags: [skills, teams, collaboration, git, review, sync]
+provides_tools:
+  - guild_status
+  - guild_sync
+  - guild_propose
+  - guild_review
+provides_hooks:
+  - pre_tool_call
+  - on_skill_lifecycle
+  - pre_llm_call
+  - on_session_start
+config_schema:
+  auto_sync_minutes:
+    type: int
+    default: 15
+    description: "Pull approved team skills in the background at session start when the last sync is older than this many minutes (0 = manual only)."
+  suggest_sharing:
+    type: bool
+    default: true
+    description: "When your agent saves a new skill, have it mention once that you can share it with the guild."
+  approve_before_propose:
+    type: bool
+    default: true
+    description: "Ask you before the agent's guild_propose tool sends a skill to the guild remote."
