@@ -61,7 +61,7 @@ In a chat, `/guild status`, `/guild propose <skill>`, `/guild review` and `/guil
 
 In Hermes Desktop, Guild adds a **Guild** page to the sidebar (also in ⌘K as "Guild: open team skills"). It lists proposals waiting for review, opens each one's diff with a count of what was removed before sending, and has Approve and Decline buttons. Below that are the team's skills and any skills you learned that the team doesn't have yet, each with a button to propose it. The page talks to the plugin through Hermes' plugin RPC (`plugin.guild.*`), so there is no extra server.
 
-If you work alone across several machines or profiles, `hermes guild init <remote> --solo` creates a guild with no review step, so each of your machines picks up what the others learn.
+If you work alone across several machines or profiles, `hermes guild init <remote> --solo` creates a guild with no review step, so each of your machines picks up what the others learn. In a solo guild a proposal is committed straight to `main` with no review branch.
 
 ## Agent tools
 
@@ -88,7 +88,7 @@ The guild repository holds `guild.yaml` (name, reviewers, policy), one folder pe
 
 Each profile keeps two clones in `<HERMES_HOME>/plugin-data/guild/`. `library/` tracks `main`, and its `skills/` folder is added to `skills.external_dirs`, so team skills appear in Hermes' skill index next to your own. `work/` is where proposal branches and approvals are built.
 
-Hermes prefers a local skill over an external one with the same name. When your own proposal is approved, Guild moves your local copy to `plugin-data/guild/backups/` so that you get later team changes. Other name clashes are listed in `hermes guild status` and left alone.
+Hermes prefers a local skill over an external one with the same name. When a sync finds a local skill that is identical to the team's copy, or is your own proposal that the team accepted, Guild moves your local copy to `plugin-data/guild/backups/` so that you get later team changes. Nothing is deleted. Other name clashes are listed in `hermes guild status` and left alone.
 
 ## Disclosure
 

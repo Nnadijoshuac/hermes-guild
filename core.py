@@ -158,11 +158,26 @@ def member_slug() -> str:
 
 # --------------------------------------------------------------------------- git
 
+# Git, ssh and any credential helper only see these variables, never the provider keys in the
+# Hermes process environment.
+_GIT_ENV_KEEP = (
+    "PATH", "HOME", "LANG", "USER", "LOGNAME", "TMPDIR", "TEMP", "TMP",
+    "SSH_AUTH_SOCK", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+    # Windows: git and ssh need these to find the system, the user profile and credentials
+    "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "APPDATA", "LOCALAPPDATA",
+    "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "PROGRAMDATA", "PROGRAMFILES",
+)
+
+
 def _git_env() -> dict[str, str]:
-    env = dict(os.environ)
+    src = os.environ
+    if os.name == "nt":  # environment names are case-insensitive on Windows
+        src = {k.upper(): v for k, v in os.environ.items()}
+    env = {k: src[k] for k in _GIT_ENV_KEEP if k in src}
     env["GIT_TERMINAL_PROMPT"] = "0"          # never hang on a credential prompt
     env.setdefault("GIT_ASKPASS", "")
-    env["LC_ALL"] = env.get("LC_ALL", "C")
+    env["LC_ALL"] = os.environ.get("LC_ALL", "C")
     return env
 
 
@@ -448,11 +463,25 @@ def sync(*, quiet: bool = False) -> dict[str, Any]:
             "saved_local_edits": str(backup) if backup else None, "retired_local_copies": retired}
 
 
+def _skill_files(root: Path) -> list[Path]:
+    """Regular files under a skill folder. Symlinks (files or folders) are skipped, so a skill
+    can never carry or hash a file from outside its own folder."""
+    out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        base = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if not (base / d).is_symlink()]
+        for name in filenames:
+            f = base / name
+            if not f.is_symlink() and f.is_file():
+                out.append(f)
+    return out
+
+
 def _skill_hash(d: Path) -> str:
     h = hashlib.sha256()
     if not d.is_dir():
         return ""
-    for f in sorted(p for p in d.rglob("*") if p.is_file() and p.name != META_FILE):
+    for f in sorted(p for p in _skill_files(d) if p.name != META_FILE):
         h.update(f.relative_to(d).as_posix().encode())
         h.update(b"\0")
         h.update(f.read_bytes())
@@ -536,7 +565,7 @@ def _read_skill_files(src: Path) -> tuple[dict[str, bytes], list[str]]:
     files: dict[str, bytes] = {}
     skipped: list[str] = []
     total = 0
-    for f in sorted(p for p in src.rglob("*") if p.is_file()):
+    for f in sorted(_skill_files(src)):
         rel = f.relative_to(src).as_posix()
         if rel == META_FILE or rel.startswith((".git/", "__pycache__/")) or "/__pycache__/" in rel:
             continue

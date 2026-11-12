@@ -31,6 +31,16 @@ _settings: dict[str, Any] = {"auto_sync_minutes": 15, "suggest_sharing": True, "
 _sync_thread: Optional[threading.Thread] = None
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]+")
+
+
+def _safe(value: Any, limit: int = 64) -> str:
+    """Text from the shared repo (names, authors) before it goes into the agent's context:
+    no newlines or control characters, and capped, so a teammate can't inject instructions."""
+    text = " ".join(_CONTROL.sub(" ", str(value or "")).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def configure(settings: dict[str, Any]) -> None:
     _settings.update({k: v for k, v in settings.items() if v is not None})
 
@@ -39,10 +49,11 @@ def configure(settings: dict[str, Any]) -> None:
 
 def _block(skill: str) -> dict[str, str]:
     meta = core.skill_meta(skill)
-    name = core.guild_config().get("name", "team")
-    who = f", by {meta['author']}" if meta.get("author") else ""
+    name = _safe(core.guild_config().get("name", "team"), 40)
+    skill = _safe(skill)
+    who = f", by {_safe(meta['author'], 40)}" if meta.get("author") else ""
     return {"action": "block", "message": (
-        f"Guild: '{skill}' is a team skill from the {name} guild (v{meta.get('version', 1)}{who}). "
+        f"Guild: '{skill}' is a team skill from the {name} guild (v{_safe(meta.get('version', 1), 8)}{who}). "
         "It is read-only here so every teammate's agent keeps running the same reviewed version. "
         f"To improve it, call guild_propose with skill='{skill}', content set to the full improved SKILL.md, "
         "and a one-line note saying what changed and why. A teammate reviews it before it reaches everyone.")}
@@ -87,7 +98,7 @@ def on_pre_tool_call(tool_name: str = "", args: Optional[dict[str, Any]] = None,
             remote = core.load_state().get("remote", "the guild remote")
             skill = args.get("skill", "?")
             return {"action": "approve", "message": (
-                f"Share skill '{skill}' with the {core.guild_config().get('name')} guild? Its files are scrubbed "
+                f"Share skill '{_safe(skill)}' with the {_safe(core.guild_config().get('name'), 40)} guild? Its files are scrubbed "
                 f"for secrets, then pushed to {remote} as a proposal for review.")}
         if not core.is_configured():
             return None
@@ -159,16 +170,17 @@ def on_pre_llm_call(**_: Any):
         notes: list[str] = []
         st = core.load_state()
         new, changed = st.get("announce_new") or [], st.get("announce_changed") or []
-        gname = core.guild_config().get("name", "team")
+        gname = _safe(core.guild_config().get("name", "team"), 40)
         if new or changed:
             def _who(s: str) -> str:
                 m = core.skill_meta(s)
-                return f"{s} (by {m.get('author', '?')}, approved by {m.get('approved_by', '?')})"
+                return (f"{_safe(s)} (by {_safe(m.get('author', '?'), 40)}, "
+                        f"approved by {_safe(m.get('approved_by', '?'), 40)})")
             parts = []
             if new:
                 parts.append("new: " + ", ".join(_who(s) for s in new[:8]))
             if changed:
-                parts.append("updated: " + ", ".join(changed[:8]))
+                parts.append("updated: " + ", ".join(_safe(c) for c in changed[:8]))
             notes.append(f"[Guild] Your team's {gname} guild has shared skills you can use now, {'; '.join(parts)}. "
                          "They are in your skill index. Prefer them over improvising when they fit, and briefly "
                          "tell the user when a team skill helped.")
@@ -179,9 +191,10 @@ def on_pre_llm_call(**_: Any):
                 if row.get("nudged") or skill in proposed:
                     continue
                 nudge = skill
-                notes.append(f"[Guild] You saved the skill '{skill}' and your {gname} guild doesn't have it yet. "
+                shown = _safe(skill)
+                notes.append(f"[Guild] You saved the skill '{shown}' and your {gname} guild doesn't have it yet. "
                              f"At the end of this reply, add one short line telling the user they can share it "
-                             f"with their team via `/guild propose {skill}`. Don't call guild_propose unless the "
+                             f"with their team via `/guild propose {shown}`. Don't call guild_propose unless the "
                              "user asks.")
                 break
 
